@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 import os
 import re
-import smtplib
 import sqlite3
 from datetime import datetime, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -127,29 +126,74 @@ def insert_contact(contact: dict) -> int:
 
 
 def send_email(name: str, email: str, message: str) -> bool:
-    sender_password = os.environ.get("SENDER_PASSWORD", "")
-    if not sender_password:
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    sender_email = os.environ.get("RESEND_FROM_EMAIL", "").strip()
+    recipient_email = os.environ.get("CONTACT_RECIPIENT_EMAIL", "").strip()
+    missing_settings = [
+        setting
+        for setting, value in (
+            ("RESEND_API_KEY", api_key),
+            ("RESEND_FROM_EMAIL", sender_email),
+            ("CONTACT_RECIPIENT_EMAIL", recipient_email),
+        )
+        if not value
+    ]
+    if missing_settings:
+        app.logger.error(
+            "Unable to send contact notification: missing %s.",
+            ", ".join(missing_settings),
+        )
         return False
+
+    payload = {
+        "from": sender_email,
+        "to": [recipient_email],
+        "reply_to": email,
+        "subject": f"New Contact Form Submission from {name}",
+        "text": f"Name: {name}\nEmail: {email}\n\n{message}",
+    }
+    api_request = Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
     try:
-        sender_email = os.environ.get("SENDER_EMAIL", "nikettalekar@gmail.com")
-        recipient_email = os.environ.get("CONTACT_RECIPIENT_EMAIL", "nikettalekar@gmail.com")
-        mail = MIMEMultipart("alternative")
-        mail["Subject"] = f"New Contact Form Submission from {name}"
-        mail["From"] = sender_email
-        mail["To"] = recipient_email
-        mail["Reply-To"] = email
-        mail.attach(MIMEText(f"Name: {name}\nEmail: {email}\n\n{message}", "plain"))
-        with smtplib.SMTP(
-            os.environ.get("SMTP_SERVER", "smtp.gmail.com"),
-            int(os.environ.get("SMTP_PORT", "587")),
-            timeout=10,
-        ) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, mail["To"], mail.as_string())
-        return True
-    except (OSError, smtplib.SMTPException, ValueError):
-        app.logger.exception("Unable to send contact notification email.")
+        with urlopen(api_request, timeout=10) as response:
+            if 200 <= response.status < 300:
+                return True
+            app.logger.error(
+                "Resend rejected contact notification with HTTP status %s.",
+                response.status,
+            )
+            return False
+    except HTTPError as error:
+        error_code = "unknown"
+        try:
+            error_body = json.loads(error.read(4096).decode("utf-8"))
+            if isinstance(error_body, dict):
+                candidate = error_body.get("name") or error_body.get("code")
+                if isinstance(candidate, str):
+                    error_code = re.sub(r"[^A-Za-z0-9_.-]", "", candidate)[:80] or "unknown"
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        app.logger.error(
+            "Resend rejected contact notification (HTTP %s, error %s).",
+            error.code,
+            error_code,
+        )
+        return False
+    except (TimeoutError, URLError, OSError, ValueError) as error:
+        reason = getattr(error, "reason", None)
+        diagnostic = type(reason).__name__ if reason is not None else type(error).__name__
+        app.logger.error(
+            "Resend contact notification request failed (%s).",
+            diagnostic,
+        )
         return False
 
 
@@ -186,7 +230,7 @@ def contact() -> tuple:
     entry = {"name": payload["name"].strip(), "email": payload["email"].strip(), "message": payload["message"].strip(), "created_at": datetime.now(tz=timezone.utc).isoformat()}
     entry["id"] = insert_contact(entry)
     email_sent = send_email(entry["name"], entry["email"], entry["message"])
-    response_message = "Email sent successfully." if email_sent else "Contact saved, but email could not be sent."
+    response_message = "Email notification accepted by Resend." if email_sent else "Contact saved, but email could not be sent."
     return jsonify({"success": True, "message": response_message, "email_sent": email_sent, "data": entry}), 201
 
 
