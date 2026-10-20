@@ -18,7 +18,11 @@ FRONTEND_DIR = BASE_DIR.parent / "dist"
 LEGACY_CONTACTS_FILE = DATA_DIR / "contacts.json"
 ENV_FILE = BASE_DIR / ".env"
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MAX_NAME_LENGTH = 120
+MAX_EMAIL_LENGTH = 254
+MAX_MESSAGE_LENGTH = 5000
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024
 
 
 def load_env_file() -> None:
@@ -46,35 +50,60 @@ def ensure_storage() -> None:
             except (FileNotFoundError, json.JSONDecodeError):
                 legacy_contacts = []
             if isinstance(legacy_contacts, list):
-                connection.executemany("INSERT OR IGNORE INTO contacts VALUES (?, ?, ?, ?, ?)", [(item.get("id", 0), str(item.get("name", "")).strip(), str(item.get("email", "")).strip(), str(item.get("message", "")).strip(), str(item.get("created_at", "")).strip()) for item in legacy_contacts if isinstance(item, dict)])
+                connection.executemany(
+                    "INSERT INTO contacts (name, email, message, created_at) VALUES (?, ?, ?, ?)",
+                    [
+                        (
+                            str(item.get("name", "")).strip(),
+                            str(item.get("email", "")).strip(),
+                            str(item.get("message", "")).strip(),
+                            str(item.get("created_at", "")).strip(),
+                        )
+                        for item in legacy_contacts
+                        if isinstance(item, dict)
+                    ],
+                )
         connection.commit()
 
 
 def validate_contact(payload: dict) -> dict[str, str]:
     errors: dict[str, str] = {}
-    name = str(payload.get("name", "")).strip()
-    email = str(payload.get("email", "")).strip()
-    message = str(payload.get("message", "")).strip()
+    name = payload.get("name", "")
+    email = payload.get("email", "")
+    message = payload.get("message", "")
+    name = name.strip() if isinstance(name, str) else ""
+    email = email.strip() if isinstance(email, str) else ""
+    message = message.strip() if isinstance(message, str) else ""
     if not name:
         errors["name"] = "Name is required."
     elif len(name) < 2:
         errors["name"] = "Name must be at least 2 characters long."
+    elif len(name) > MAX_NAME_LENGTH:
+        errors["name"] = f"Name must be {MAX_NAME_LENGTH} characters or fewer."
     if not email:
         errors["email"] = "Email is required."
+    elif len(email) > MAX_EMAIL_LENGTH:
+        errors["email"] = f"Email must be {MAX_EMAIL_LENGTH} characters or fewer."
     elif not EMAIL_REGEX.match(email):
         errors["email"] = "Enter a valid email address."
     if not message:
         errors["message"] = "Message is required."
     elif len(message) < 10:
         errors["message"] = "Message must be at least 10 characters long."
+    elif len(message) > MAX_MESSAGE_LENGTH:
+        errors["message"] = f"Message must be {MAX_MESSAGE_LENGTH} characters or fewer."
     return errors
 
 
-def insert_contact(contact: dict) -> None:
+def insert_contact(contact: dict) -> int:
     ensure_storage()
     with sqlite3.connect(DATABASE_FILE) as connection:
-        connection.execute("INSERT INTO contacts VALUES (?, ?, ?, ?, ?)", (contact["id"], contact["name"], contact["email"], contact["message"], contact["created_at"]))
+        cursor = connection.execute(
+            "INSERT INTO contacts (name, email, message, created_at) VALUES (?, ?, ?, ?)",
+            (contact["name"], contact["email"], contact["message"], contact["created_at"]),
+        )
         connection.commit()
+        return int(cursor.lastrowid)
 
 
 def send_email(name: str, email: str, message: str) -> bool:
@@ -90,13 +119,17 @@ def send_email(name: str, email: str, message: str) -> bool:
         mail["To"] = recipient_email
         mail["Reply-To"] = email
         mail.attach(MIMEText(f"Name: {name}\nEmail: {email}\n\n{message}", "plain"))
-        with smtplib.SMTP(os.environ.get("SMTP_SERVER", "smtp.gmail.com"), int(os.environ.get("SMTP_PORT", "587"))) as server:
+        with smtplib.SMTP(
+            os.environ.get("SMTP_SERVER", "smtp.gmail.com"),
+            int(os.environ.get("SMTP_PORT", "587")),
+            timeout=10,
+        ) as server:
             server.starttls()
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, mail["To"], mail.as_string())
         return True
-    except Exception as error:
-        print(f"Error sending email: {error}")
+    except (OSError, smtplib.SMTPException, ValueError):
+        app.logger.exception("Unable to send contact notification email.")
         return False
 
 
@@ -112,6 +145,11 @@ def health() -> tuple:
     return jsonify({"success": True, "message": "Portfolio API is running."}), 200
 
 
+@app.errorhandler(413)
+def request_too_large(_error):
+    return jsonify({"success": False, "message": "Request body is too large."}), 413
+
+
 @app.get("/assets/<path:filename>")
 def frontend_assets(filename: str):
     return send_from_directory(FRONTEND_DIR / "assets", filename)
@@ -125,8 +163,8 @@ def contact() -> tuple:
     errors = validate_contact(payload)
     if errors:
         return jsonify({"success": False, "message": "Validation failed.", "errors": errors}), 400
-    entry = {"id": int(datetime.now(tz=timezone.utc).timestamp() * 1000), "name": str(payload["name"]).strip(), "email": str(payload["email"]).strip(), "message": str(payload["message"]).strip(), "created_at": datetime.now(tz=timezone.utc).isoformat()}
-    insert_contact(entry)
+    entry = {"name": payload["name"].strip(), "email": payload["email"].strip(), "message": payload["message"].strip(), "created_at": datetime.now(tz=timezone.utc).isoformat()}
+    entry["id"] = insert_contact(entry)
     email_sent = send_email(entry["name"], entry["email"], entry["message"])
     response_message = "Email sent successfully." if email_sent else "Contact saved, but email could not be sent."
     return jsonify({"success": True, "message": response_message, "email_sent": email_sent, "data": entry}), 201

@@ -124,13 +124,17 @@ function Projects() {
                 </div>
 
                 <div className="mt-auto flex h-12 shrink-0 items-center gap-5 border-t border-white/10 pt-3">
-                  <a
-                    href={project.github}
-                    className="flex items-center gap-2 text-sm text-white/70 hover:text-cyan-300 transition"
-                  >
-                    <Github size={16} />
-                    Code
-                  </a>
+                  {project.github && project.github !== "#" && (
+                    <a
+                      href={project.github}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-2 text-sm text-white/70 hover:text-cyan-300 transition"
+                    >
+                      <Github size={16} />
+                      Code
+                    </a>
+                  )}
 
                   {project.live && project.live !== "#" && (
                     <a

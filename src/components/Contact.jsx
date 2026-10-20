@@ -36,10 +36,14 @@ function Contact() {
       errors.name = "Name is required.";
     } else if (name.length < 2) {
       errors.name = "Name must be at least 2 characters long.";
+    } else if (name.length > 120) {
+      errors.name = "Name must be 120 characters or fewer.";
     }
 
     if (!email) {
       errors.email = "Email is required.";
+    } else if (email.length > 254) {
+      errors.email = "Email must be 254 characters or fewer.";
     } else if (!EMAIL_REGEX.test(email)) {
       errors.email = "Enter a valid email address.";
     }
@@ -48,6 +52,8 @@ function Contact() {
       errors.message = "Message is required.";
     } else if (message.length < 10) {
       errors.message = "Message must be at least 10 characters long.";
+    } else if (message.length > 5000) {
+      errors.message = "Message must be 5000 characters or fewer.";
     }
 
     return errors;
@@ -169,8 +175,8 @@ function Contact() {
             <div className="eyebrow-line" />
             <p className="mt-6 text-base leading-8 text-white/65">
               If you&apos;re working on AI products, data systems, or polished digital
-              experiences, I&apos;d love to connect. This contact section is ready to plug into
-              an email service or backend form handler.
+              experiences, I&apos;d love to connect. Send a message using the form and I&apos;ll
+              get back to you.
             </p>
 
             <div className="mt-8 space-y-4">
@@ -211,6 +217,9 @@ function Contact() {
                   name="name"
                   type="text"
                   placeholder="Your name"
+                  maxLength={120}
+                  autoComplete="name"
+                  required
                   value={formData.name}
                   onChange={handleChange}
                   disabled={status.loading}
@@ -229,6 +238,9 @@ function Contact() {
                   name="email"
                   type="email"
                   placeholder="nikettalekar@gmail.com"
+                  maxLength={254}
+                  autoComplete="email"
+                  required
                   value={formData.email}
                   onChange={handleChange}
                   disabled={status.loading}
@@ -247,6 +259,8 @@ function Contact() {
                   name="message"
                   rows="5"
                   placeholder="Tell me about your idea..."
+                  maxLength={5000}
+                  required
                   value={formData.message}
                   onChange={handleChange}
                   disabled={status.loading}
@@ -258,13 +272,13 @@ function Contact() {
               </div>
 
               {status.error && (
-                <div className="rounded-2xl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+                <div role="alert" className="rounded-2xl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-200">
                   {status.error}
                 </div>
               )}
 
               {status.success && (
-                <div className="rounded-2xl border border-neon-cyan/25 bg-neon-cyan/10 px-4 py-3 text-sm text-neon-cyan">
+                <div role="status" className="rounded-2xl border border-neon-cyan/25 bg-neon-cyan/10 px-4 py-3 text-sm text-neon-cyan">
                   {status.success}
                 </div>
               )}
