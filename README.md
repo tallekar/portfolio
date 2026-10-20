@@ -67,4 +67,4 @@ python backend/serve.py
 
 For a single-service deployment, leave `VITE_API_BASE_URL` unset so the frontend uses the same origin for API requests.
 
-To enable email notifications, copy `backend/.env.example` to `backend/.env` for local use, or configure these environment variables in the hosting platform: `SENDER_EMAIL`, `SENDER_PASSWORD`, and `CONTACT_RECIPIENT_EMAIL`. Never commit credentials. Email delivery is optional; contact submissions are still stored when email settings are omitted.
+To enable email notifications, configure `SENDER_EMAIL`, `SENDER_PASSWORD`, and `CONTACT_RECIPIENT_EMAIL` as environment variables. For local development, put them in `backend/.env`; on Render, add them in the service's Environment settings. `SMTP_SERVER` defaults to `smtp.gmail.com` and `SMTP_PORT` defaults to `587`. Never commit credentials. Email delivery is optional; contact submissions are still stored when email settings are omitted.
