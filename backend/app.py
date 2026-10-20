@@ -38,6 +38,26 @@ def load_env_file() -> None:
 
 load_env_file()
 DATABASE_FILE = Path(os.environ.get("CONTACTS_DB_PATH", DATA_DIR / "contacts.db")).expanduser().resolve()
+CORS_ALLOWED_ORIGINS = {
+    origin.strip()
+    for origin in os.environ.get(
+        "CORS_ALLOWED_ORIGINS",
+        "https://niket-talekar-portfolio.vercel.app",
+    ).split(",")
+    if origin.strip()
+}
+
+
+@app.after_request
+def add_cors_headers(response):
+    origin = request.headers.get("Origin")
+    if origin in CORS_ALLOWED_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Max-Age"] = "600"
+        response.vary.add("Origin")
+    return response
 
 
 def ensure_storage() -> None:
