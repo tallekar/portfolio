@@ -20,6 +20,7 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_NAME_LENGTH = 120
 MAX_EMAIL_LENGTH = 254
 MAX_MESSAGE_LENGTH = 5000
+MAX_RESEND_ERROR_BODY_BYTES = 16 * 1024
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024
 
@@ -137,7 +138,31 @@ def sanitize_resend_error_body(body: bytes, sensitive_values: list[str]) -> str:
         "[REDACTED_EMAIL]",
         response_body,
     )
-    return response_body[:4096]
+    response_body = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[REDACTED_IP]", response_body)
+    return response_body[:MAX_RESEND_ERROR_BODY_BYTES]
+
+
+def read_resend_error_body(response, sensitive_values: list[str]) -> str:
+    body = response.read(MAX_RESEND_ERROR_BODY_BYTES + 1)
+    truncated = len(body) > MAX_RESEND_ERROR_BODY_BYTES
+    if truncated:
+        body = body[:MAX_RESEND_ERROR_BODY_BYTES]
+    sanitized_body = sanitize_resend_error_body(body, sensitive_values)
+    if truncated:
+        sanitized_body += " [truncated at 16384 bytes]"
+    return sanitized_body
+
+
+def get_resend_diagnostic_headers(headers, sensitive_values: list[str]) -> dict[str, str]:
+    diagnostic_headers = {}
+    for header in ("server", "cf-ray", "cf-mitigated", "content-type", "date", "via", "retry-after"):
+        value = headers.get(header)
+        if value:
+            diagnostic_headers[header] = sanitize_resend_error_body(
+                str(value).encode("utf-8"),
+                sensitive_values,
+            )
+    return diagnostic_headers
 
 
 def send_email(name: str, email: str, message: str) -> bool:
@@ -173,27 +198,32 @@ def send_email(name: str, email: str, message: str) -> bool:
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "NiketTalekarPortfolioContact/1.0",
         },
         method="POST",
     )
 
+    sensitive_values = [api_key, sender_email, recipient_email, name, email, message]
     try:
         with urlopen(api_request, timeout=10) as response:
             if 200 <= response.status < 300:
                 return True
+            error_body = read_resend_error_body(response, sensitive_values)
+            response_headers = get_resend_diagnostic_headers(response.headers, sensitive_values)
             app.logger.error(
-                "Resend rejected contact notification with HTTP status %s.",
+                "Resend contact notification rejected (HTTP %s, response headers: %s, response body: %s).",
                 response.status,
+                json.dumps(response_headers, sort_keys=True),
+                error_body or "<empty>",
             )
             return False
     except HTTPError as error:
-        error_body = sanitize_resend_error_body(
-            error.read(4096),
-            [api_key, sender_email, recipient_email, name, email, message],
-        )
+        error_body = read_resend_error_body(error, sensitive_values)
+        response_headers = get_resend_diagnostic_headers(error.headers, sensitive_values)
         app.logger.error(
-            "Resend rejected contact notification (HTTP %s, response body: %s).",
+            "Resend contact notification rejected (HTTP %s, response headers: %s, response body: %s).",
             error.code,
+            json.dumps(response_headers, sort_keys=True),
             error_body or "<empty>",
         )
         return False
