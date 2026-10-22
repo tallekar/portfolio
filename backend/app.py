@@ -125,6 +125,21 @@ def insert_contact(contact: dict) -> int:
         return int(cursor.lastrowid)
 
 
+def sanitize_resend_error_body(body: bytes, sensitive_values: list[str]) -> str:
+    response_body = body.decode("utf-8", errors="replace")
+    for value in sensitive_values:
+        if value:
+            response_body = response_body.replace(value, "[REDACTED]")
+    response_body = re.sub(r"\bre_[A-Za-z0-9_-]+\b", "[REDACTED_API_KEY]", response_body)
+    response_body = re.sub(r"\bBearer\s+\S+", "Bearer [REDACTED]", response_body, flags=re.IGNORECASE)
+    response_body = re.sub(
+        r"\b[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
+        "[REDACTED_EMAIL]",
+        response_body,
+    )
+    return response_body[:4096]
+
+
 def send_email(name: str, email: str, message: str) -> bool:
     api_key = os.environ.get("RESEND_API_KEY", "").strip()
     sender_email = os.environ.get("RESEND_FROM_EMAIL", "").strip()
@@ -172,19 +187,14 @@ def send_email(name: str, email: str, message: str) -> bool:
             )
             return False
     except HTTPError as error:
-        error_code = "unknown"
-        try:
-            error_body = json.loads(error.read(4096).decode("utf-8"))
-            if isinstance(error_body, dict):
-                candidate = error_body.get("name") or error_body.get("code")
-                if isinstance(candidate, str):
-                    error_code = re.sub(r"[^A-Za-z0-9_.-]", "", candidate)[:80] or "unknown"
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            pass
+        error_body = sanitize_resend_error_body(
+            error.read(4096),
+            [api_key, sender_email, recipient_email, name, email, message],
+        )
         app.logger.error(
-            "Resend rejected contact notification (HTTP %s, error %s).",
+            "Resend rejected contact notification (HTTP %s, response body: %s).",
             error.code,
-            error_code,
+            error_body or "<empty>",
         )
         return False
     except (TimeoutError, URLError, OSError, ValueError) as error:
@@ -230,8 +240,18 @@ def contact() -> tuple:
     entry = {"name": payload["name"].strip(), "email": payload["email"].strip(), "message": payload["message"].strip(), "created_at": datetime.now(tz=timezone.utc).isoformat()}
     entry["id"] = insert_contact(entry)
     email_sent = send_email(entry["name"], entry["email"], entry["message"])
-    response_message = "Email notification accepted by Resend." if email_sent else "Contact saved, but email could not be sent."
-    return jsonify({"success": True, "message": response_message, "email_sent": email_sent, "data": entry}), 201
+    if not email_sent:
+        return jsonify({
+            "success": False,
+            "message": "Your message was saved, but email notification could not be sent. Please try again later.",
+            "email_sent": False,
+        }), 502
+    return jsonify({
+        "success": True,
+        "message": "Email notification accepted by Resend.",
+        "email_sent": True,
+        "data": entry,
+    }), 201
 
 
 if __name__ == "__main__":
