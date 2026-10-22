@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 const navLinks = [
   { label: "About", href: "#about" },
   { label: "Experience", href: "#experience" },
+  { label: "Education", href: "#education" },
   { label: "Projects", href: "#projects" },
   { label: "Skills", href: "#skills" },
   { label: "Contact", href: "#contact" },
@@ -38,7 +39,7 @@ function Navbar() {
 
   useEffect(() => {
     function updateActiveSection() {
-      const sectionIds = ["#contact", "#skills", "#projects", "#experience", "#about", "#home"];
+      const sectionIds = ["#contact", "#skills", "#projects", "#education", "#experience", "#about", "#home"];
 
       for (const id of sectionIds) {
         const section = document.querySelector(id);
