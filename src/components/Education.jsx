@@ -32,7 +32,7 @@ function Education() {
 
       <div className="grid gap-5 md:grid-cols-2">
         <Reveal className="md:col-span-2">
-          <article className="glass-panel flex h-full flex-col gap-8 p-6 sm:p-8 md:flex-row md:items-center md:justify-between">
+          <article className="glass-panel flex h-full flex-col gap-8 p-6 sm:p-8">
             <div className="min-w-0">
               <div className="mb-5 inline-flex size-12 items-center justify-center rounded-2xl border border-neon-cyan/20 bg-neon-cyan/10 text-neon-cyan">
                 <GraduationCap size={24} aria-hidden="true" />
@@ -46,13 +46,6 @@ function Education() {
               <p className="mt-3 text-base leading-7 text-white/65">
                 Government College of Engineering, Ratnagiri
               </p>
-            </div>
-
-            <div className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-6 py-5 md:min-w-40 md:text-center">
-              <p className="text-xs font-medium uppercase tracking-[0.24em] text-white/50">
-                CGPA
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-neon-cyan">6.3 <span className="text-base text-white/55">/ 10</span></p>
             </div>
           </article>
         </Reveal>
