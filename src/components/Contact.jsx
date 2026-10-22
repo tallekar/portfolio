@@ -128,7 +128,7 @@ function Contact() {
 
       const result = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || result.success !== true || result.email_sent !== true) {
         if (result.errors) {
           setFieldErrors((current) => ({
             ...current,
@@ -144,7 +144,8 @@ function Contact() {
       setStatus({
         loading: false,
         error: "",
-        success: result.message || "Message sent successfully.",
+        success:
+          "Message sent successfully! Thank you for reaching out. I've received your message and will get back to you as soon as possible.",
       });
       setFormData({
         name: "",

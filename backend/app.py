@@ -278,7 +278,7 @@ def contact() -> tuple:
         }), 502
     return jsonify({
         "success": True,
-        "message": "Email notification accepted by Resend.",
+        "message": "Message sent successfully! Thank you for reaching out. I've received your message and will get back to you as soon as possible.",
         "email_sent": True,
         "data": entry,
     }), 201
